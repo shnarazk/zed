@@ -499,7 +499,7 @@ impl Vim {
     }
 
     pub fn switch_mode(&mut self, mode: Mode, leave_selections: bool, cx: &mut ViewContext<Self>) {
-        if self.temp_mode && mode == Mode::Normal {
+        if self.temp_mode && (mode == Mode::Normal || mode == Mode::HelixNormal) {
             self.temp_mode = false;
             self.switch_mode(Mode::Normal, leave_selections, cx);
             self.switch_mode(Mode::Insert, false, cx);
@@ -517,7 +517,7 @@ impl Vim {
         self.mode = mode;
         self.operator_stack.clear();
         self.selected_register.take();
-        if mode == Mode::Normal || mode != last_mode {
+        if mode == Mode::Normal || mode == Mode::HelixNormal || mode != last_mode {
             self.current_tx.take();
             self.current_anchor.take();
         }
@@ -968,7 +968,8 @@ impl Vim {
     fn transaction_begun(&mut self, transaction_id: TransactionId, _: &mut ViewContext<Self>) {
         let mode = if (self.mode == Mode::Insert
             || self.mode == Mode::Replace
-            || self.mode == Mode::Normal)
+            || self.mode == Mode::Normal
+            || self.mode == Mode::HelixNormal)
             && self.current_tx.is_none()
         {
             self.current_tx = Some(transaction_id);
@@ -1010,9 +1011,10 @@ impl Vim {
                         }
                     });
                 });
+                // FIXME: swicth to the exact previous mode
                 self.switch_mode(Mode::Normal, true, cx)
             }
-            Mode::Normal => {
+            Mode::Normal | Mode::HelixNormal => {
                 self.update_editor(cx, |_, editor, cx| {
                     editor.change_selections(None, cx, |s| {
                         s.move_with(|map, selection| {
@@ -1022,7 +1024,7 @@ impl Vim {
                     })
                 });
             }
-            Mode::Insert | Mode::Replace | Mode::HelixNormal => {}
+            Mode::Insert | Mode::Replace => {}
         }
     }
 
@@ -1094,7 +1096,7 @@ impl Vim {
                 self.motion(find, cx)
             }
             Some(Operator::Replace) => match self.mode {
-                Mode::Normal => self.normal_replace(text, cx),
+                Mode::Normal | Mode::HelixNormal => self.normal_replace(text, cx),
                 Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
                     self.visual_replace(text, cx)
                 }
@@ -1121,14 +1123,14 @@ impl Vim {
                         self.clear_operator(cx);
                     }
                 }
-                Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
+                Mode::Visual | Mode::VisualLine | Mode::VisualBlock | Mode::HelixNormal => {
                     self.add_surrounds(text, SurroundsType::Selection, cx);
                     self.clear_operator(cx);
                 }
                 _ => self.clear_operator(cx),
             },
             Some(Operator::ChangeSurrounds { target }) => match self.mode {
-                Mode::Normal => {
+                Mode::Normal | Mode::HelixNormal => {
                     if let Some(target) = target {
                         self.change_surrounds(text, target, cx);
                         self.clear_operator(cx);
@@ -1137,7 +1139,7 @@ impl Vim {
                 _ => self.clear_operator(cx),
             },
             Some(Operator::DeleteSurrounds) => match self.mode {
-                Mode::Normal => {
+                Mode::Normal | Mode::HelixNormal => {
                     self.delete_surrounds(text, cx);
                     self.clear_operator(cx);
                 }
@@ -1151,7 +1153,7 @@ impl Vim {
                 self.replay_register(text.chars().next().unwrap(), cx)
             }
             Some(Operator::Register) => match self.mode {
-                Mode::Insert => {
+                Mode::Insert | Mode::HelixNormal => {
                     self.update_editor(cx, |_, editor, cx| {
                         if let Some(register) = Vim::update_globals(cx, |globals, cx| {
                             globals.read_register(text.chars().next(), Some(editor), cx)
@@ -1176,7 +1178,7 @@ impl Vim {
                     self.multi_replace(text, cx)
                 }
 
-                if self.mode == Mode::Normal {
+                if self.mode == Mode::Normal || self.mode == Mode::HelixNormal {
                     self.update_editor(cx, |_, editor, cx| {
                         editor.accept_inline_completion(
                             &editor::actions::AcceptInlineCompletion {},
